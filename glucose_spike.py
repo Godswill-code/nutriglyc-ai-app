@@ -1,0 +1,730 @@
+### Import necessary libraries
+
+
+import pandas as pd
+import numpy as np
+
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+from sklearn.model_selection import train_test_split, GridSearchCV, cross_val_score
+from sklearn.preprocessing import StandardScaler
+from sklearn.impute import SimpleImputer
+from sklearn.metrics import (
+    accuracy_score,
+    precision_score,
+    recall_score,
+    f1_score,
+    roc_auc_score,
+    classification_report,
+    confusion_matrix
+)
+
+from sklearn.linear_model import LogisticRegression
+from sklearn.ensemble import RandomForestClassifier
+from xgboost import XGBClassifier
+
+#Import Dataset
+df = df = pd.read_csv(r"C:\Users\godsw\Desktop\dm_predict\glucose_spike.csv")
+
+print(df.head())
+
+#UNDERSTANDING THE DATASET
+print("Dataset shape:", df.shape)
+
+print(df.info())
+
+print(df.describe().T)
+
+print(df.columns)
+
+#CHECK MISSING VALUES
+missing_values = df.isnull().sum()
+missing_values[missing_values > 0]
+print(missing_values)
+
+#CHECK FOR DUPLICATES
+print("Duplicate rows:", df.duplicated().sum())
+df = df.drop_duplicates()
+
+#REMOVE DATA LEAKAGE FEATURES
+leakage_cols = [
+    'post_meal_glucose',
+    'glucose_change'
+]
+
+df = df.drop(columns=leakage_cols)
+
+print("Columns after removing leakage:")
+print(df.columns)
+
+#Check Target Variable Balance
+print(df['glucose_spike'].value_counts())
+print(df['glucose_spike'].value_counts(normalize=True) * 100)
+
+#DISTRIBUTION OF GLUCOSE SPIKE
+sns.countplot(data=df, x='glucose_spike')
+plt.title("Distribution of Glucose Spike")
+plt.show()
+
+#SEPARATE NUMERICAL AND CATEGORICAL COLUMNS
+numeric_cols = df.select_dtypes(include=['int64', 'float64']).columns
+categorical_cols = df.select_dtypes(include=['object']).columns
+
+print("Numerical columns:")
+print(numeric_cols)
+
+print("\nCategorical columns:")
+print(categorical_cols)
+###Numerical and categorical columns need different cleaning methods.
+
+#CLEAN MISSING NUMERICAL VALUES
+num_imputer = SimpleImputer(strategy='median')
+
+df[numeric_cols] = num_imputer.fit_transform(df[numeric_cols])
+##### Median is better than mean when there may be outliers, especially in health data such as glucose, BMI, or insulin dose.
+
+#CLEAN MISSING CATEGORICAL VALUES
+cat_imputer = SimpleImputer(strategy='most_frequent')
+
+df[categorical_cols] = cat_imputer.fit_transform(df[categorical_cols])
+
+#CONFIRM MISSING VALUES ARE REMOVED
+print("Total missing values after imputation:", df.isnull().sum().sum())
+
+#SUMMARY STATISTICS BEFORE EDA
+df.describe().T
+
+#Exploratory Data Analysis(EDA)
+##Glucose Spike by Gender
+sns.countplot(data=df, x='gender', hue='glucose_spike')
+plt.title("Glucose Spike by Gender")
+plt.show()
+##########The gender analysis revealed that glucose spikes occurred across both male and female patients. Although female participants represented a larger proportion of the dataset, the proportion of glucose spike events was slightly higher among males. However, the differences were relatively small, suggesting that gender alone may not be a strong determinant of post-meal glucose spikes. Additional dietary, clinical, and lifestyle variables are likely to play a more significant role in predicting glucose spike risk.
+
+##Additional statistical test
+from scipy.stats import chi2_contingency
+
+gender_table = pd.crosstab(
+    df['gender'],
+    df['glucose_spike']
+)
+chi2, p, dof, expected = chi2_contingency(gender_table)
+print("Chi-square Statistic:", chi2)
+print("P-value:", p)
+#######Since: p=0.00539<0.05
+###we reject the null hypothesis.
+###Null Hypothesis (H₀):
+###There is no association between gender and glucose spike occurrence.
+###Alternative Hypothesis (H₁):
+###There is an association between gender and glucose spike occurrence.
+###Therefore: There is a statistically significant relationship between gender and glucose spike occurrence in this dataset.
+
+###A Chi-Square test of independence was conducted to examine the relationship between gender and glucose spike occurrence. The results indicated a statistically significant association between the two variables, χ²(1) = 7.74, p = 0.005. Male participants exhibited a slightly higher proportion of glucose spike events compared to female participants. While the association was statistically significant, the observed differences were relatively small, suggesting that gender alone is unlikely to be a major determinant of glucose spike risk. Other factors such as glycemic load, carbohydrate intake, pre-meal glucose levels, meal risk score, and lifestyle behaviours are expected to have stronger predictive influence within the machine learning models.
+
+#Glucose spike by diabetes type
+sns.countplot(data=df, x='diabetes_type', hue='glucose_spike')
+plt.title("Glucose Spike by Diabetes Type")
+plt.show()
+#####Analysis of diabetes type revealed a clear difference in glucose spike occurrence between Type 1 and Type 2 diabetes patients. Although Type 2 diabetes patients constituted the majority of the dataset, they also exhibited a substantially higher proportion of glucose spike events. Approximately 49% of Type 2 diabetes records were associated with glucose spikes compared with approximately 33% of Type 1 diabetes records. This finding suggests that diabetes type may be an important predictor of post-meal glucose response and should be retained as a key feature in subsequent machine learning models.
+########Business Insight for NutriGlyc AI Solutions
+#####This result suggests that:
+#####Type 2 diabetes patients represent the highest-risk group.Nutrition interventions should be prioritised toward Type 2 patients. Predictive models should strongly consider diabetes type as an important feature. Personalized meal recommendations may provide greater benefits for Type 2 patients.
+
+#Statistical Validation
+from scipy.stats import chi2_contingency
+
+diabetes_table = pd.crosstab(
+    df['diabetes_type'],
+    df['glucose_spike']
+)
+
+chi2, p, dof, expected = chi2_contingency(diabetes_table)
+
+print("Chi-Square:", chi2)
+print("P-value:", p)
+#####Since: p=8.59×10−15 and p<0.05, we reject the null hypothesis.
+#####A Chi-Square test of independence was conducted to examine the relationship between diabetes type and glucose spike occurrence. The analysis revealed a highly significant association between the two variables, χ²(1) = 60.19, p < 0.001. Type 2 diabetes patients exhibited a substantially higher proportion of glucose spike events compared to Type 1 diabetes patients. Approximately 49% of Type 2 records were associated with glucose spikes, whereas only 33% of Type 1 records experienced glucose spikes. These findings suggest that diabetes type is an important predictor of post-meal glucose response and should be retained as a key feature in predictive modelling.
+
+#Glucose spike by meal time
+sns.countplot(data=df, x='meal_time', hue='glucose_spike')
+plt.title("Glucose Spike by Meal Time")
+plt.xticks(rotation=45)
+plt.show()
+#####Analysis of meal timing revealed that glucose spike events occurred across all meal categories. Snack meals exhibited the highest proportion of glucose spike events, while dinner meals demonstrated the lowest proportion. Although differences were observed between meal categories, the variation was relatively modest, suggesting that meal timing alone may not be a strong determinant of glucose spike occurrence. The findings indicate that nutritional characteristics such as carbohydrate intake, sugar content, glycemic load, and overall meal risk profile may play a more influential role in predicting post-meal glucose responses than the timing of the meal itself.
+
+#Statistical Validation
+#####To determine whether meal time and glucose spikes are significantly associated
+from scipy.stats import chi2_contingency
+
+meal_table = pd.crosstab(
+    df['meal_time'],
+    df['glucose_spike']
+)
+
+chi2, p, dof, expected = chi2_contingency(meal_table)
+
+print("Chi-Square:", chi2)
+print("P-value:", p)
+#####Since: p=0.0775 > 0.05
+#####we fail to reject the null hypothesis.
+
+#####A Chi-Square test of independence was conducted to assess the relationship between meal time and glucose spike occurrence. The results indicated no statistically significant association between the variables, χ²(3) = 6.83, p = 0.078. Although snack meals exhibited a slightly higher proportion of glucose spike events compared with breakfast, lunch, and dinner, the observed differences were not statistically significant. This suggests that meal timing alone may not be a key determinant of post-meal glucose spikes. Instead, factors such as carbohydrate intake, glycemic load, sugar consumption, pre-meal glucose levels, and other clinical indicators are likely to have greater influence on glucose response.
+#####RECOMMENDATIONS: 
+#1.Reduce high-glycemic carbohydrates.\
+#2.Increase fibre intake.\
+#3.Balance carbohydrates with protein.\
+#4.Monitor glycemic load.
+
+#Distribution of Age
+sns.histplot(df['age'], kde=True)
+plt.title("Age Distribution")
+plt.show()
+#####The age distribution of participants ranged from 18 to 79 years, with a mean age of approximately 48 years. The distribution was relatively uniform across age groups, indicating balanced representation of younger and older adults. No substantial skewness or extreme outliers were observed, suggesting good data quality. While the age distribution provides insight into the demographic composition of the dataset, further analysis is required to determine whether age is associated with glucose spike occurrence and diabetes risk.
+
+#BMI Distribution
+sns.histplot(df['bmi'], kde=True)
+plt.title("BMI Distribution")
+plt.show()
+######The BMI distribution was approximately normally distributed, with a mean BMI of 27.04 kg/m², indicating that the average participant fell within the overweight category. Most observations were concentrated between 22 and 32 kg/m², while a smaller proportion of individuals exhibited obesity-level BMI values above 30 kg/m². The distribution reflects a population at elevated metabolic risk, which is consistent with the study's focus on diabetes and glucose regulation. Given the established relationship between obesity, insulin resistance, and glucose dysregulation, BMI is expected to be an important predictive variable in subsequent machine learning analyses.
+#####RECOMMENDATION 
+##### The distribution suggests that many users may benefit from:
+#1.Weight management programs\
+#2.Personalized nutrition plans\
+#3.Physical activity recommendations\
+#4.Calorie monitoring\
+#5.Glucose spike prevention strategies
+
+#BMI by Glucose spike status
+sns.boxplot(
+    data=df,
+    x='glucose_spike',
+    y='bmi'
+)
+
+plt.title("BMI by Glucose Spike Status")
+plt.show()
+#####A boxplot comparison of BMI by glucose spike status revealed substantial overlap between the two groups. The median BMI and interquartile ranges were nearly identical for individuals with and without glucose spikes, suggesting limited visual separation based on BMI alone. Although several obesity-related outliers were observed in both groups, no clear trend indicating higher BMI among glucose spike cases was evident. These findings suggest that while BMI remains an important metabolic health indicator, other factors such as carbohydrate intake, glycemic load, glucose change, and pre-meal glucose levels may have greater influence on post-meal glucose spike occurrence.
+
+#Pre-meal Glucose vs Glucose Spike
+from scipy.stats import ttest_ind
+
+##Boxplot
+sns.boxplot(data=df, x='glucose_spike', y='pre_meal_glucose')
+plt.title("Pre-meal Glucose by Glucose Spike Status")
+plt.xlabel("Glucose Spike")
+plt.ylabel("Pre-meal Glucose")
+plt.show()
+
+##Group statistics
+print(df.groupby('glucose_spike')['pre_meal_glucose'].describe())
+
+##T-test
+spike = df[df['glucose_spike'] == 1]['pre_meal_glucose']
+no_spike = df[df['glucose_spike'] == 0]['pre_meal_glucose']
+
+t_stat, p_value = ttest_ind(spike, no_spike)
+
+print("T-statistic:", t_stat)
+print("P-value:", p_value)
+#####A comparison of pre-meal glucose levels between patients with and without glucose spikes revealed substantial overlap in the distributions. The mean pre-meal glucose level was 110.40 mg/dL for the non-spike group and 111.09 mg/dL for the spike group. An independent samples t-test indicated that this difference was not statistically significant (t = 1.81, p = 0.070). These findings suggest that pre-meal glucose levels alone do not strongly differentiate patients who experience post-meal glucose spikes from those who do not. Consequently, post-meal dietary and metabolic factors are likely to play a greater role in determining glucose spike occurrence.
+
+#Glycemic Load vs Glucose Spike
+# Boxplot
+sns.boxplot(data=df, x='glucose_spike', y='glycemic_load')
+plt.title("Glycemic Load by Glucose Spike Status")
+plt.xlabel("Glucose Spike")
+plt.ylabel("Glycemic Load")
+plt.show()
+
+# Group statistics
+print(df.groupby('glucose_spike')['glycemic_load'].describe())
+
+# T-test
+spike = df[df['glucose_spike'] == 1]['glycemic_load']
+no_spike = df[df['glucose_spike'] == 0]['glycemic_load']
+
+t_stat, p_value = ttest_ind(spike, no_spike)
+
+print("T-statistic:", t_stat)
+print("P-value:", p_value)
+#####Since p < 0.05, we reject the null hypothesis(There is a statistically significant difference in glycemic load between patients who experienced glucose spikes and those who did not.)\
+#####Glycemic load showed a strong relationship with glucose spike occurrence. Patients who experienced glucose spikes had a substantially higher mean glycemic load of 94.99 compared with 54.96 among those without glucose spikes. The boxplot showed clear separation between the two groups, with the glucose spike group having a noticeably higher median and wider upper range. An independent samples t-test confirmed that this difference was statistically significant, t = 40.22, p < 0.001. This indicates that glycemic load is a major predictor of post-meal glucose spike risk and should be retained as a key feature in the machine learning model.
+
+#Sugar Intake vs Glucose Spike
+# Boxplot
+sns.boxplot(data=df, x='glucose_spike', y='sugar_intake')
+plt.title("Sugar Intake by Glucose Spike Status")
+plt.xlabel("Glucose Spike")
+plt.ylabel("Sugar Intake")
+plt.show()
+
+# Group statistics
+print(df.groupby('glucose_spike')['sugar_intake'].describe())
+
+# T-test
+spike = df[df['glucose_spike'] == 1]['sugar_intake']
+no_spike = df[df['glucose_spike'] == 0]['sugar_intake']
+
+t_stat, p_value = ttest_ind(spike, no_spike)
+
+print("T-statistic:", t_stat)
+print("P-value:", p_value)
+#####Sugar intake showed no meaningful difference between patients who experienced glucose spikes and those who did not. The mean sugar intake was 45.99 grams for the non-spike group and 46.14 grams for the spike group. An independent samples t-test confirmed that this difference was not statistically significant (t = 0.23, p = 0.818). The boxplot also demonstrated substantial overlap between the two groups, indicating that sugar intake alone does not effectively distinguish glucose spike occurrence. These findings suggest that broader dietary measures such as glycemic load, total carbohydrate intake, and meal composition may have greater influence on post-meal glucose responses than sugar intake in isolation.
+
+#Lifestyle factors vs Glucose spike
+import matplotlib.pyplot as plt
+import seaborn as sns
+lifestyle = [
+    'physical_activity',
+    'sleep_hours',
+    'stress_level',
+    'water_intake'
+]
+
+for feature in lifestyle:
+
+    plt.figure(figsize=(8,5))
+
+    sns.boxplot(
+        data=df,
+        x='glucose_spike',
+        y=feature
+    )
+
+    plt.title(f'{feature} by Glucose Spike')
+
+    plt.show()
+    #####The lifestyle-related exploratory analyses revealed varying degrees of association with glucose spike occurrence. Individuals experiencing glucose spikes demonstrated slightly lower levels of physical activity compared with those who did not experience spikes, suggesting a potential protective role of exercise in glucose regulation. Conversely, sleep duration and water intake exhibited substantial overlap between groups, indicating limited discriminatory ability as standalone predictors. Stress levels showed similar median values across both groups, although the glucose spike group displayed marginally greater variability. Collectively, these findings suggest that lifestyle factors may complement dietary predictors in glucose spike prediction models, with physical activity demonstrating the greatest potential contribution among the variables examined. Nevertheless, nutritional characteristics, particularly glycaemic load and carbohydrate intake, remained substantially stronger determinants of glucose spike risk within the NutriGlyc AI framework.
+    
+#Nutrition Variables vs Glucose spike
+nutrition = [
+    'carb_intake',
+    'protein_intake',
+    'fat_intake',
+    'fiber_intake',
+    'glycemic_load',
+    'glycemic_index',
+    'portion_size'
+]
+
+for feature in nutrition:
+
+    plt.figure(figsize=(8,5))
+
+    sns.boxplot(
+        data=df,
+        x='glucose_spike',
+        y=feature
+    )
+
+    plt.title(f'{feature} by Glucose Spike')
+
+    plt.show()
+#####The nutritional EDA revealed that glycaemic load and carbohydrate intake were the strongest dietary factors associated with glucose spike occurrence. Individuals experiencing glucose spikes demonstrated substantially higher glycaemic loads and carbohydrate consumption compared with non-spike individuals. Conversely, protein intake, fat intake, fibre intake, glycaemic index, and portion size exhibited substantial overlap between groups, suggesting limited discriminatory ability when considered independently. These findings highlight the importance of overall carbohydrate burden and meal composition in determining post-prandial glucose responses. From a predictive modelling perspective, glycaemic load and carbohydrate intake appear to be valuable features for early glucose spike risk assessment within the NutriGlyc AI framework.
+
+#Categorical Variables vs Glucose spike
+categoricals = [
+    'gender',
+    'diabetes_type',
+    'meal_time'
+]
+
+for feature in categoricals:
+
+    plt.figure(figsize=(8,5))
+
+    sns.countplot(
+        data=df,
+        x=feature,
+        hue='glucose_spike'
+    )
+
+    plt.title(f'Glucose Spike by {feature}')
+
+    plt.show()
+#####The categorical analyses revealed varying levels of association with glucose spike occurrence. Gender demonstrated a statistically significant but modest relationship with glucose spikes, with males exhibiting slightly higher spike rates than females. Diabetes type emerged as one of the strongest categorical predictors, as individuals with Type 2 Diabetes experienced substantially higher proportions of glucose spikes compared with those with Type 1 Diabetes. Conversely, meal time showed only minor differences across categories and was not statistically associated with glucose spike occurrence. These findings suggest that underlying metabolic characteristics, particularly diabetes type, exert greater influence on glucose regulation than demographic characteristics or meal timing alone. Consequently, diabetes type should be considered a key feature within predictive modelling frameworks aimed at early glucose spike detection.
+#Chi-Square Tests
+from scipy.stats import chi2_contingency
+
+categoricals = [
+    'gender',
+    'diabetes_type',
+    'meal_time'
+]
+
+for feature in categoricals:
+
+    contingency = pd.crosstab(
+        df[feature],
+        df['glucose_spike']
+    )
+
+    chi2, p, dof, expected = chi2_contingency(contingency)
+
+    print("\n", "="*50)
+    print(feature)
+
+    print("Chi-square:", chi2)
+    print("P-value:", p)
+#####A Chi-Square test of independence was conducted to assess the relationship between categorical variables and glucose spike occurrence. Gender showed a statistically significant but relatively weak association with glucose spike status, suggesting that males had a slightly higher spike rate than females. Diabetes type demonstrated a highly significant association, with Type 2 diabetes patients showing a substantially higher glucose spike rate than Type 1 patients. In contrast, meal time was not statistically significant, indicating that the timing of the meal alone does not strongly influence glucose spike occurrence. These findings suggest that diabetes type is an important categorical predictor, while meal composition is likely more influential than meal timing.
+
+#Correlation Matrix
+plt.figure(figsize=(16, 10))
+sns.heatmap(df.corr(numeric_only=True), cmap='coolwarm', annot=False)
+plt.title("Correlation Heatmap")
+plt.show()
+#####The correlation analysis identified glycemic load as the strongest nutritional predictor of glucose spike occurrence, followed by carbohydrate intake and meal risk score. These findings reinforce the importance of both carbohydrate quantity and quality in influencing glycaemic outcomes. Carb-fibre ratio demonstrated meaningful associations with meal risk, highlighting the potential protective role of dietary fibre. Conversely, protein intake, fat intake, sugar intake, stress level, and sleep duration exhibited weak correlations with glucose spikes. Patient identifiers showed no predictive value and should therefore be excluded from model development. Overall, the findings support the use of dietary composition and engineered meal-related variables as central components of predictive models aimed at early glucose spike detection.
+
+#Top Correlation with Glucose Spike
+correlation_with_target = df.corr(numeric_only=True)['glucose_spike'].sort_values(ascending=False)
+print(correlation_with_target)
+
+#Feature Engineering
+df['protein_carb_ratio'] = df['protein_intake'] / (df['carb_intake'] + 1)
+
+df['fat_carb_ratio'] = df['fat_intake'] / (df['carb_intake'] + 1)
+
+df['sugar_carb_ratio'] = df['sugar_intake'] / (df['carb_intake'] + 1)
+
+df['sleep_stress_score'] = df['sleep_hours'] / (df['stress_level'] + 1)
+
+df['activity_bmi_ratio'] = df['physical_activity'] / (df['bmi'] + 1)
+
+df['glucose_risk_index'] = (
+    df['pre_meal_glucose'] +
+    df['glycemic_load'] +
+    df['meal_risk_score']
+)
+####Feature engineering creates new useful variables from existing ones. These can help the model understand health and nutrition patterns better.
+
+print(df)
+
+#Define features and targets
+X = df.drop(columns=['glucose_spike'])
+y = df['glucose_spike']
+######X contains the input features.
+######y contains the target we want to predict.
+
+# Encode Categorical Variables
+X = pd.get_dummies(X, drop_first=True)
+#####Machine learning models cannot understand text directly, so categorical variables like gender and meal time must be converted into numbers.
+
+#Train-Test Split
+X_train, X_test, y_train, y_test = train_test_split(
+    X,
+    y,
+    test_size=0.2,
+    random_state=42,
+    stratify=y
+)
+#####We train the model on 80% of the data and test it on 20%.
+#####stratify=y keeps the same balance of glucose spike classes in both sets.
+
+# Scale Features for Logistic Regression
+scaler = StandardScaler()
+
+X_train_scaled = scaler.fit_transform(X_train)
+X_test_scaled = scaler.transform(X_test)
+#####Logistic Regression performs better when numerical features are on a similar scale.
+
+#Train Logistic Regression Model
+lr_model = LogisticRegression(max_iter=1000)
+
+lr_model.fit(X_train_scaled, y_train)
+
+lr_pred = lr_model.predict(X_test_scaled)
+lr_prob = lr_model.predict_proba(X_test_scaled)[:, 1]
+
+#Train Random Forest Model
+rf_model = RandomForestClassifier(
+    n_estimators=200,
+    random_state=42,
+    class_weight='balanced'
+)
+
+rf_model.fit(X_train, y_train)
+
+rf_pred = rf_model.predict(X_test)
+rf_prob = rf_model.predict_proba(X_test)[:, 1]
+#####Random Forest handles non-linear patterns and is useful for feature importance.
+
+#Train XGBoost Model
+xgb_model = XGBClassifier(
+    n_estimators=200,
+    learning_rate=0.05,
+    max_depth=5,
+    random_state=42,
+    eval_metric='logloss'
+)
+
+xgb_model.fit(X_train, y_train)
+
+xgb_pred = xgb_model.predict(X_test)
+xgb_prob = xgb_model.predict_proba(X_test)[:, 1]
+#####XGBoost is powerful for structured/tabular datasets and often performs very well.
+
+#Create Evaluation Function
+def evaluate_model(name, y_test, y_pred, y_prob):
+    print(f"\n{name} Performance")
+    print("-" * 40)
+    print("Accuracy:", accuracy_score(y_test, y_pred))
+    print("Precision:", precision_score(y_test, y_pred))
+    print("Recall:", recall_score(y_test, y_pred))
+    print("F1 Score:", f1_score(y_test, y_pred))
+    print("ROC-AUC:", roc_auc_score(y_test, y_prob))
+    print("\nClassification Report:")
+    print(classification_report(y_test, y_pred))
+    #####This avoids repeating the same evaluation code for every model.
+    
+#Evaluate All Models
+evaluate_model("Logistic Regression", y_test, lr_pred, lr_prob)
+
+evaluate_model("Random Forest", y_test, rf_pred, rf_prob)
+
+evaluate_model("XGBoost", y_test, xgb_pred, xgb_prob)
+#####The models were compared using multiple metrics, not just accuracy
+
+#Confusion Matrix
+cm = confusion_matrix(y_test, rf_pred)
+
+sns.heatmap(cm, annot=True, fmt='d', cmap='Blues')
+plt.title("Random Forest Confusion Matrix")
+plt.xlabel("Predicted")
+plt.ylabel("Actual")
+plt.show()
+#After removing data leakage variables, the Random Forest model produced a more realistic confusion matrix. The model correctly classified 410 non-spike cases and 361 spike cases, achieving an overall accuracy of approximately 77.1%. However, it generated 127 false positives and 102 false negatives. The presence of false negatives is particularly important in a healthcare context because missed glucose spike cases could reduce the effectiveness of early intervention. These results suggest that while the leakage-free model has useful predictive ability, further optimisation may be required to improve recall and reduce missed high-risk cases.
+
+#Hyperparameter tuning: Random Forest
+from sklearn.model_selection import GridSearchCV
+
+rf = RandomForestClassifier(random_state=42, class_weight='balanced')
+
+rf_param_grid = {
+    'n_estimators': [150, 300],
+    'max_depth': [10, None],
+    'min_samples_split': [2, 5],
+    'min_samples_leaf': [1, 2]
+}
+
+grid_rf = GridSearchCV(
+    estimator=rf,
+    param_grid=rf_param_grid,
+    cv=5,
+    scoring='roc_auc',
+    n_jobs=-1,
+    verbose=2
+)
+
+grid_rf.fit(X_train, y_train)
+
+print("Best Random Forest Parameters:")
+print(grid_rf.best_params_)
+
+best_rf = grid_rf.best_estimator_
+
+tuned_rf_pred = best_rf.predict(X_test)
+tuned_rf_prob = best_rf.predict_proba(X_test)[:, 1]
+
+#Hyperparameter Tuning: Logistic regression
+lr = LogisticRegression(max_iter=1000, solver='lbfgs')
+lr_param_grid = {
+    'C': [0.001, 0.01, 0.1, 1, 10, 100]
+}
+grid_lr = GridSearchCV(
+    estimator=lr,
+    param_grid=lr_param_grid,
+    cv=3,
+    scoring='roc_auc',
+    n_jobs=-1,
+    verbose=2
+)
+grid_lr.fit(X_train_scaled, y_train)
+print("Best Logistic Regression Parameters:")
+print(grid_lr.best_params_)
+
+best_lr = grid_lr.best_estimator_
+tuned_lr_pred = best_lr.predict(X_test_scaled)
+tuned_lr_prob = best_lr.predict_proba(X_test_scaled)[:, 1]
+
+evaluate_model(
+    "Tuned Logistic Regression",
+    y_test,
+    tuned_lr_pred,
+    tuned_lr_prob
+)
+
+#HYPERPARAMETER TUNING: XGBOOST
+from xgboost import XGBClassifier
+from sklearn.model_selection import RandomizedSearchCV
+from scipy.stats import randint, uniform
+
+xgb = XGBClassifier(
+    random_state=42,
+    eval_metric='logloss',
+    tree_method='hist'   # MUCH faster
+)
+
+xgb_param_dist = {
+    'n_estimators': randint(100, 400),
+    'max_depth': randint(3, 10),
+    'learning_rate': uniform(0.01, 0.2),
+    'subsample': uniform(0.7, 0.3),
+    'colsample_bytree': uniform(0.7, 0.3)
+}
+
+rand_xgb = RandomizedSearchCV(
+    estimator=xgb,
+    param_distributions=xgb_param_dist,
+    n_iter=30,          # instead of 108
+    cv=3,               # instead of 5
+    scoring='roc_auc',
+    n_jobs=-1,
+    verbose=2,
+    random_state=42
+)
+
+rand_xgb.fit(X_train, y_train)
+
+print("Best XGBoost Parameters:")
+print(rand_xgb.best_params_)
+
+best_xgb = rand_xgb.best_estimator_
+
+tuned_xgb_pred = best_xgb.predict(X_test)
+tuned_xgb_prob = best_xgb.predict_proba(X_test)[:, 1]
+
+evaluate_model("Tuned XGBoost", y_test, tuned_xgb_pred, tuned_xgb_prob)
+
+#Cross-validation
+from sklearn.model_selection import cross_val_score
+
+cv_scores = cross_val_score(
+    best_xgb,
+    X,
+    y,
+    cv=10,
+    scoring='roc_auc'
+)
+
+print("Cross-validation scores:", cv_scores)
+print("Mean ROC-AUC:", cv_scores.mean())
+print("Standard deviation:", cv_scores.std())
+
+#Feature Importance
+feature_importance = pd.DataFrame({
+    'Feature': X.columns,
+    'Importance': rf_model.feature_importances_
+})
+
+feature_importance = feature_importance.sort_values(
+    by='Importance',
+    ascending=False
+)
+
+feature_importance.head(15)
+
+#Plot Top Features
+top_features = feature_importance.head(15)
+
+plt.figure(figsize=(10, 6))
+sns.barplot(data=top_features, x='Importance', y='Feature')
+plt.title("Top 15 Important Features")
+plt.show()
+#####The feature importance analysis showed that carbohydrate intake was the most influential predictor in the leakage-free Random Forest model, followed by glycemic load. This indicates that total carbohydrate burden and glycemic impact are central drivers of glucose spike risk. Engineered ratio-based features, including fat-carbohydrate ratio, carb-fibre ratio, protein-carbohydrate ratio, and sugar-carbohydrate ratio, also ranked highly, demonstrating the value of feature engineering in capturing meal composition effects. Lifestyle and treatment-related variables such as insulin dose, physical activity, and sleep-stress score contributed additional predictive information. These findings support the use of dietary composition, metabolic risk scores, and lifestyle indicators in the NutriGlyc AI glucose spike prediction system.
+
+#SHAP Explainability
+import shap
+
+explainer = shap.TreeExplainer(best_xgb)
+shap_values = explainer(X_test)
+shap.summary_plot(shap_values.values, X_test)
+#SHAP analysis was conducted to improve model interpretability and identify the most influential predictors of glucose spike occurrence within the leakage-free Random Forest model. Carbohydrate intake emerged as the dominant predictor, with higher intake substantially increasing glucose spike risk. Glycaemic load also demonstrated strong positive contributions, reinforcing the importance of carbohydrate quality and quantity. Insulin dose and physical activity exhibited protective effects, while stress level showed a modest positive association with spike risk. Engineered variables such as activity-BMI ratio and glucose risk index contributed additional predictive information. Conversely, variables including glycaemic index, portion size, and water intake demonstrated minimal influence. The presence of patient identifiers among the predictors suggests that such variables should be excluded from future model development to ensure generalisability and prevent unintended bias. Overall, the findings highlight the critical role of dietary composition, lifestyle behaviours, and clinical management in the early prediction of glucose spikes.
+
+#Save Cleaned Dataset
+df.to_csv("cleaned_glucose_spike_dataset.csv", index=False)
+
+#Save Feature Importance and results
+feature_importance.to_csv("feature_importance.csv", index=False)
+results = pd.DataFrame({
+    "Model": [
+        "Logistic Regression",
+        "Tuned Logistic Regression",
+        "Random Forest",
+        "XGBoost",
+        "Tuned Random Forest",
+        "Tuned XGBoost"
+    ],
+    "Accuracy": [
+        accuracy_score(y_test, lr_pred),
+        accuracy_score(y_test, tuned_lr_pred),
+        accuracy_score(y_test, rf_pred),
+        accuracy_score(y_test, xgb_pred),
+        accuracy_score(y_test, tuned_rf_pred),
+        accuracy_score(y_test, tuned_xgb_pred)
+    ],
+    "Precision": [
+        precision_score(y_test, lr_pred),
+        precision_score(y_test, tuned_lr_pred),
+        precision_score(y_test, rf_pred),
+        precision_score(y_test, xgb_pred),
+        precision_score(y_test, tuned_rf_pred),
+        precision_score(y_test, tuned_xgb_pred)
+    ],
+    "Recall": [
+        recall_score(y_test, lr_pred),
+        recall_score(y_test, tuned_lr_pred),
+        recall_score(y_test, rf_pred),
+        recall_score(y_test, xgb_pred),
+        recall_score(y_test, tuned_rf_pred),
+        recall_score(y_test, tuned_xgb_pred)
+    ],
+    "F1 Score": [
+        f1_score(y_test, lr_pred),
+        f1_score(y_test, tuned_lr_pred),
+        f1_score(y_test, rf_pred),
+        f1_score(y_test, xgb_pred),
+        f1_score(y_test, tuned_rf_pred),
+        f1_score(y_test, tuned_xgb_pred)
+    ],
+    "ROC-AUC": [
+        roc_auc_score(y_test, lr_prob),
+        roc_auc_score(y_test, tuned_lr_prob),
+        roc_auc_score(y_test, rf_prob),
+        roc_auc_score(y_test, xgb_prob),
+        roc_auc_score(y_test, tuned_rf_prob),
+        roc_auc_score(y_test, tuned_xgb_prob)
+    ]
+})
+
+results.sort_values(by="ROC-AUC", ascending=False)
+
+results.to_csv("model_comparison_results.csv", index=False)
+
+fig, axes = plt.subplots(nrows=2, ncols=3, figsize=(18, 12))
+axes = axes.flatten()
+
+metrics = ['Accuracy', 'Precision', 'Recall', 'F1 Score', 'ROC-AUC']
+
+for i, metric in enumerate(metrics):
+    sns.barplot(x='Model', y=metric, data=results, ax=axes[i], palette='viridis', hue='Model', legend=False)
+    axes[i].set_title(f'Model {metric}')
+    axes[i].set_ylim(0.6, 1.0) # Set a consistent y-limit for better comparison of high scores
+    axes[i].set_ylabel(metric)
+    axes[i].tick_params(axis='x', rotation=45)
+
+# Hide any unused subplots
+for j in range(len(metrics), len(axes)):
+    fig.delaxes(axes[j])
+
+plt.tight_layout()
+plt.suptitle('Model Performance Comparison', y=1.02, fontsize=16)
+plt.show()
+#The comparative evaluation of six machine learning models demonstrated broadly similar predictive performance, with accuracy ranging from approximately 75.9% to 77.4%./n
+# Tuned Logistic Regression achieved the highest ROC-AUC score, indicating superior discriminatory ability, while Tuned Random Forest exhibited the highest recall, making it most effective at identifying true glucose spike cases. Random Forest achieved the strongest F1 score, reflecting a balanced trade-off between precision and recall. Hyperparameter tuning produced only marginal performance gains and, in some instances, slightly reduced predictive performance. These findings suggest that simpler and more interpretable models may provide performance comparable to more complex ensemble methods for glucose spike prediction. The choice of model should therefore be guided by the intended application, whether prioritising interpretability, balanced performance, or maximising early detection of high-risk individuals.
+
+#Save Final Model
+import joblib
+
+joblib.dump(best_xgb, "best_glucose_spike_model.pkl")
+joblib.dump(scaler, "scaler.pkl")
