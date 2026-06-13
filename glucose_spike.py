@@ -34,7 +34,7 @@ from xgboost import XGBClassifier
 
 """####Import dataset"""
 
-df = pd.read_csv("glucose_spike.csv")
+df = pd.read_csv("C:\Users\godsw\Desktop\dm_predict\glucose_spike.csv")
 
 df.head()
 
